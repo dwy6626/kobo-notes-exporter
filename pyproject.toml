@@ -1,0 +1,26 @@
+[project]
+name = "kobo-notes-exporter"
+version = "0.1.0"
+description = "Export Kobo highlights/notes to Markdown"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "De-Wei Ye", email = "DeWeiYe6626@gmail.com" },
+]
+maintainers = [
+  { name = "De-Wei Ye", email = "DeWeiYe6626@gmail.com" },
+]
+dependencies = []
+
+[project.scripts]
+kobo-notes-export = "kobo_notes_exporter.cli:main"
+
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+where = ["src"]

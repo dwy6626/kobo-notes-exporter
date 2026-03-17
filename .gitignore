@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+.dist/
+dist/
+build/
+*.egg-info/
+
+# outputs
+*.md.bak
+notes*.md
+kobo_notes*.md
+
+# device/database files
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+kepub/
