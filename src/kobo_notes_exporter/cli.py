@@ -16,7 +16,7 @@ def clean_text(value: Optional[str]) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Export Kobo highlights/notes from KoboReader.sqlite to Markdown"
+        description="Export Kobo highlights and notes from KoboReader.sqlite to Markdown"
     )
     parser.add_argument(
         "--db",
@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         default="kobo_notes",
-        help="Output directory for per-book markdown files",
+        help="Output directory for per-book highlights/notes markdown files",
     )
     return parser.parse_args()
 
@@ -511,9 +511,13 @@ def build_markdown(
         note_text = clean_text(note)
 
         if highlight:
-            books[book][chapter_title]["quotes"].append({"text": highlight, "pos": pos, "date": created})
+            books[book][chapter_title]["quotes"].append(
+                {"text": highlight, "pos": pos, "date": created, "kind": "highlight"}
+            )
         if note_text:
-            books[book][chapter_title]["quotes"].append({"text": note_text, "pos": pos, "date": created})
+            books[book][chapter_title]["quotes"].append(
+                {"text": note_text, "pos": pos, "date": created, "kind": "note"}
+            )
 
     lines: List[str] = []
     single_book = len(books) == 1
@@ -533,7 +537,10 @@ def build_markdown(
 
             quotes = sorted(payload["quotes"], key=lambda q: (q["pos"], q["date"]))
             for quote in quotes:
-                lines.append(f"> {quote['text']}")
+                if quote.get("kind") == "note":
+                    lines.append(f"{quote['text']}")
+                else:
+                    lines.append(f"> {quote['text']}")
                 lines.append("")
 
         if not single_book and idx < len(books):

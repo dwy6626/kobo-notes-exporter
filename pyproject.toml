@@ -1,7 +1,7 @@
 [project]
 name = "kobo-notes-exporter"
 version = "0.1.0"
-description = "Export Kobo highlights/notes to Markdown"
+description = "Export Kobo highlights and notes to Markdown"
 readme = "README.md"
 requires-python = ">=3.14"
 authors = [
