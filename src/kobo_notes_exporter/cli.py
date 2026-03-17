@@ -188,15 +188,50 @@ def base_content_id(content_id: str) -> str:
     return cid
 
 
-def content_path_from_content_id(content_id: str) -> str:
+def content_id_match_keys(content_id: str) -> List[str]:
     cid = clean_text(content_id)
     if not cid:
-        return ""
+        return []
+
+    keys: List[str] = []
+
+    def add_key(value: str) -> None:
+        v = clean_text(value)
+        if v and v not in keys:
+            keys.append(v)
+
+    # Most specific first, then progressively broader fallbacks.
+    add_key(cid)
     if "#" in cid:
-        cid = cid.split("#", 1)[0]
+        add_key(cid.split("#", 1)[0])
+    add_key(base_content_id(cid))
+    return keys
+
+
+def content_path_match_keys(content_id: str) -> List[str]:
+    cid = clean_text(content_id)
+    if not cid:
+        return []
+
     if "!" in cid:
-        return cid.split("!")[-1].lstrip("/")
-    return cid.lstrip("/")
+        path = cid.split("!")[-1].lstrip("/")
+    else:
+        path = cid.lstrip("/")
+
+    keys: List[str] = []
+
+    def add_key(value: str) -> None:
+        v = clean_text(value)
+        if v and v not in keys:
+            keys.append(v)
+
+    add_key(path)
+    if "#" in path:
+        add_key(path.split("#", 1)[0])
+    add_key(Path(path).name)
+    if "#" in path:
+        add_key(Path(path.split("#", 1)[0]).name)
+    return keys
 
 
 def chapter_fallback_from_content_id(content_id: str) -> str:
@@ -236,23 +271,25 @@ def load_chapter_map(conn: sqlite3.Connection, volume_ids: Set[str]) -> Dict[str
 
     placeholders = ",".join(["?"] * len(volume_ids))
     query = f"""
-        SELECT BookID, ContentID, Title
+        SELECT BookID, ContentID, Title, VolumeIndex
         FROM content
         WHERE BookID IN ({placeholders})
           AND ContentType = '899'
           AND Title IS NOT NULL
           AND TRIM(Title) <> ''
+        ORDER BY VolumeIndex ASC
     """
 
     chapter_map: Dict[str, Dict[str, str]] = {}
-    for book_id, content_id, title in conn.execute(query, tuple(volume_ids)):
+    for book_id, content_id, title, _volume_index in conn.execute(query, tuple(volume_ids)):
         bid = clean_text(book_id)
-        cid = base_content_id(content_id)
         t = clean_text(title)
-        if not bid or not cid or not t:
+        if not bid or not t:
             continue
         chapter_map.setdefault(bid, {})
-        chapter_map[bid][cid] = t
+        for key in content_id_match_keys(content_id):
+            if key not in chapter_map[bid]:
+                chapter_map[bid][key] = t
     return chapter_map
 
 
@@ -273,16 +310,16 @@ def load_chapter_order_map(
     order_map: Dict[str, Dict[str, int]] = {}
     for book_id, content_id, volume_index in conn.execute(query, tuple(volume_ids)):
         bid = clean_text(book_id)
-        cid = base_content_id(content_id)
-        if not bid or not cid:
+        if not bid:
             continue
         try:
             order_value = int(volume_index)
         except (TypeError, ValueError):
             continue
         order_map.setdefault(bid, {})
-        if cid not in order_map[bid] or order_value < order_map[bid][cid]:
-            order_map[bid][cid] = order_value
+        for key in content_id_match_keys(content_id):
+            if key not in order_map[bid] or order_value < order_map[bid][key]:
+                order_map[bid][key] = order_value
     return order_map
 
 
@@ -302,29 +339,51 @@ def load_volume_index_title_maps(
 
     content_index_map: Dict[str, Dict[str, int]] = {}
     toc_title_by_index: Dict[str, Dict[int, str]] = {}
+    pending_toc: Dict[str, List[Tuple[str, str, int]]] = {}
 
     for book_id, content_id, content_type, volume_index, title in conn.execute(
         query, tuple(volume_ids)
     ):
         bid = clean_text(book_id)
-        cid = base_content_id(content_id)
+        keys = content_id_match_keys(content_id)
         t = clean_text(title)
         try:
             vi = int(volume_index)
         except (TypeError, ValueError):
             continue
 
-        if not bid or not cid:
+        if not bid or not keys:
             continue
 
         content_index_map.setdefault(bid, {})
         if content_type == "9":
-            content_index_map[bid][cid] = vi
+            for key in keys:
+                if key not in content_index_map[bid]:
+                    content_index_map[bid][key] = vi
 
         if content_type == "899" and t and not looks_like_filename_title(t):
-            toc_title_by_index.setdefault(bid, {})
-            if vi not in toc_title_by_index[bid]:
-                toc_title_by_index[bid][vi] = t
+            pending_toc.setdefault(bid, [])
+            pending_toc[bid].append((clean_text(content_id), t, vi))
+
+    # Map TOC entries to spine order (type=9) so fallback chapter lookup
+    # compares indexes from the same scale.
+    for bid, toc_entries in pending_toc.items():
+        resolved: List[Tuple[int, str]] = []
+        for toc_content_id, title, fallback_index in toc_entries:
+            mapped_index: Optional[int] = None
+            for key in content_id_match_keys(toc_content_id):
+                mapped_index = content_index_map.get(bid, {}).get(key)
+                if mapped_index is not None:
+                    break
+            if mapped_index is None:
+                mapped_index = fallback_index
+            resolved.append((mapped_index, title))
+
+        resolved.sort(key=lambda x: x[0])
+        toc_title_by_index.setdefault(bid, {})
+        for idx, title in resolved:
+            if idx not in toc_title_by_index[bid]:
+                toc_title_by_index[bid][idx] = title
 
     return content_index_map, toc_title_by_index
 
@@ -339,14 +398,14 @@ def load_epub_toc_map(volume_ids: Iterable[str], kepub_dir: Optional[Path]) -> D
         l = clean_text(label)
         if not h or not l:
             return
-        if "#" in h:
-            h = h.split("#", 1)[0]
-        h = h.lstrip("./")
-        if not h:
+        raw = h.lstrip("./")
+        if not raw:
             return
+        no_fragment = raw.split("#", 1)[0]
         toc_map.setdefault(book_id, {})
-        toc_map[book_id][h] = l
-        toc_map[book_id][Path(h).name] = l
+        for key in (raw, no_fragment, Path(raw).name, Path(no_fragment).name):
+            if key and key not in toc_map[book_id]:
+                toc_map[book_id][key] = l
 
     for book_id in volume_ids:
         epub_path = kepub_dir / book_id
@@ -426,19 +485,29 @@ def resolve_chapter_title(
     content_index_map: Dict[str, Dict[str, int]],
     toc_title_by_index: Dict[str, Dict[int, str]],
 ) -> str:
-    cid = base_content_id(content_id)
-    chapter_title = chapter_map.get(volume, {}).get(cid) or chapter_fallback_from_content_id(content_id)
+    lookup_keys = content_id_match_keys(content_id)
+    chapter_title = ""
+    for key in lookup_keys:
+        mapped = chapter_map.get(volume, {}).get(key)
+        if mapped:
+            chapter_title = mapped
+            break
+    if not chapter_title:
+        chapter_title = chapter_fallback_from_content_id(content_id)
 
     if looks_like_filename_title(chapter_title):
-        path_key = content_path_from_content_id(content_id)
-        chapter_title = (
-            epub_toc_map.get(volume, {}).get(path_key)
-            or epub_toc_map.get(volume, {}).get(Path(path_key).name)
-            or chapter_title
-        )
+        for key in content_path_match_keys(content_id):
+            mapped = epub_toc_map.get(volume, {}).get(key)
+            if mapped:
+                chapter_title = mapped
+                break
 
     if looks_like_filename_title(chapter_title):
-        vi = content_index_map.get(volume, {}).get(cid)
+        vi = None
+        for key in lookup_keys:
+            vi = content_index_map.get(volume, {}).get(key)
+            if vi is not None:
+                break
         if vi is not None:
             direct = toc_title_by_index.get(volume, {}).get(vi)
             if direct:
@@ -482,7 +551,7 @@ def build_markdown(
     ) in rows:
         book = clean_text(book_title) or "(Unknown Title)"
         volume = clean_text(volume_id)
-        cid = base_content_id(content_id)
+        match_keys = content_id_match_keys(content_id)
 
         chapter_title = resolve_chapter_title(
             volume,
@@ -492,9 +561,12 @@ def build_markdown(
             content_index_map,
             toc_title_by_index,
         )
-        chapter_order = chapter_order_map.get(volume, {}).get(
-            cid, fallback_order_from_content_id(content_id)
-        )
+        chapter_order = fallback_order_from_content_id(content_id)
+        for key in match_keys:
+            mapped_order = chapter_order_map.get(volume, {}).get(key)
+            if mapped_order is not None:
+                chapter_order = mapped_order
+                break
 
         books.setdefault(book, {})
         if chapter_title not in books[book]:
