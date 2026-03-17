@@ -3,7 +3,7 @@ name = "kobo-notes-exporter"
 version = "0.1.0"
 description = "Export Kobo highlights/notes to Markdown"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.14"
 authors = [
   { name = "De-Wei Ye", email = "DeWeiYe6626@gmail.com" },
 ]

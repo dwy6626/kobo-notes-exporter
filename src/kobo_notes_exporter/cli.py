@@ -18,29 +18,25 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export Kobo highlights/notes from KoboReader.sqlite to Markdown"
     )
-    parser.add_argument("--db", default="", help="Path to KoboReader.sqlite")
+    parser.add_argument(
+        "--db",
+        default="",
+        help="Path to KoboReader.sqlite (optional override when --device-root is set)",
+    )
     parser.add_argument(
         "--device-root",
         default="",
-        help="Kobo mount root path (e.g. /Volumes/KOBOeReader)",
+        help="Kobo mount root path (recommended, e.g. /Volumes/KOBOeReader)",
     )
     parser.add_argument(
         "--kepub-dir",
         default="",
-        help="Path to kepub directory (optional, auto-detected if omitted)",
-    )
-    parser.add_argument("--out", default="kobo_notes.md", help="Output markdown path")
-    parser.add_argument("--book", default="", help="Only export this exact book title")
-    parser.add_argument(
-        "--limit", type=int, default=0, help="Max rows to export (0 means all rows)"
+        help="Path to kepub directory (optional override when --device-root is set)",
     )
     parser.add_argument(
-        "--asc", action="store_true", help="Sort rows old-to-new (default: new-to-old)"
-    )
-    parser.add_argument(
-        "--volumes-root",
-        default="/Volumes",
-        help="Root path used for auto-detect mounted Kobo (default: /Volumes)",
+        "--out-dir",
+        default="kobo_notes",
+        help="Output directory for per-book markdown files",
     )
     return parser.parse_args()
 
@@ -88,14 +84,14 @@ def auto_detect_db_path(volumes_root: Path) -> Optional[Path]:
 
 
 def resolve_db_path(args: argparse.Namespace) -> Path:
-    if clean_text(args.db):
-        db_path = Path(args.db).expanduser().resolve()
-        if not db_path.exists():
-            raise SystemExit(f"Database not found: {db_path}")
-        return db_path
-
     if clean_text(args.device_root):
         device_root = Path(args.device_root).expanduser().resolve()
+        if clean_text(args.db):
+            db_path = Path(args.db).expanduser()
+            db_path = (device_root / db_path).resolve() if not db_path.is_absolute() else db_path.resolve()
+            if not db_path.exists():
+                raise SystemExit(f"Database not found: {db_path}")
+            return db_path
         for db_path in candidate_db_paths_for_device_root(device_root):
             if db_path.exists():
                 return db_path.resolve()
@@ -104,7 +100,13 @@ def resolve_db_path(args: argparse.Namespace) -> Path:
             f"Checked: {', '.join(str(p) for p in candidate_db_paths_for_device_root(device_root))}"
         )
 
-    detected = auto_detect_db_path(Path(args.volumes_root).expanduser().resolve())
+    if clean_text(args.db):
+        db_path = Path(args.db).expanduser().resolve()
+        if not db_path.exists():
+            raise SystemExit(f"Database not found: {db_path}")
+        return db_path
+
+    detected = auto_detect_db_path(Path("/Volumes"))
     if detected is None:
         raise SystemExit(
             "Could not auto-detect KoboReader.sqlite. Use --db or --device-root explicitly."
@@ -113,9 +115,22 @@ def resolve_db_path(args: argparse.Namespace) -> Path:
 
 
 def resolve_kepub_dir(args: argparse.Namespace, db_path: Path) -> Optional[Path]:
+    device_root: Optional[Path] = None
+    if clean_text(args.device_root):
+        device_root = Path(args.device_root).expanduser().resolve()
+
     if clean_text(args.kepub_dir):
-        kepub_dir = Path(args.kepub_dir).expanduser().resolve()
-        return kepub_dir if kepub_dir.exists() else None
+        kepub_dir = Path(args.kepub_dir).expanduser()
+        if device_root is not None and not kepub_dir.is_absolute():
+            kepub_dir = (device_root / kepub_dir).resolve()
+        else:
+            kepub_dir = kepub_dir.resolve()
+        return kepub_dir if kepub_dir.exists() and kepub_dir.is_dir() else None
+
+    if device_root is not None:
+        root_kepub = (device_root / "kepub").resolve()
+        if root_kepub.exists() and root_kepub.is_dir():
+            return root_kepub
 
     candidates: List[Path] = []
     if db_path.parent.name == ".kobo":
@@ -130,20 +145,7 @@ def resolve_kepub_dir(args: argparse.Namespace, db_path: Path) -> Optional[Path]
     return None
 
 
-def fetch_rows(conn: sqlite3.Connection, asc: bool, limit: int, book: str):
-    order = "ASC" if asc else "DESC"
-    where_book = ""
-    limit_clause = ""
-    params: List[object] = []
-
-    if clean_text(book):
-        where_book = "AND cb.Title = ?"
-        params.append(book)
-
-    if limit > 0:
-        limit_clause = "LIMIT ?"
-        params.append(limit)
-
+def fetch_rows(conn: sqlite3.Connection):
     query = f"""
         SELECT
             COALESCE(cb.Title, '(Unknown Title)') AS book_title,
@@ -161,11 +163,18 @@ def fetch_rows(conn: sqlite3.Connection, asc: bool, limit: int, book: str):
             (b.Text IS NOT NULL AND TRIM(b.Text) <> '')
             OR (b.Annotation IS NOT NULL AND TRIM(b.Annotation) <> '')
         )
-        {where_book}
-        ORDER BY b.DateCreated {order}
-        {limit_clause}
+        ORDER BY b.DateCreated DESC
     """
-    return conn.execute(query, params).fetchall()
+    return conn.execute(query).fetchall()
+
+
+def safe_filename(name: str) -> str:
+    base = clean_text(name) or "Unknown Title"
+    base = re.sub(r'[\\/:*?"<>|]+', "_", base)
+    base = re.sub(r"\s+", " ", base).strip(" .")
+    if not base:
+        base = "Unknown Title"
+    return base
 
 
 def base_content_id(content_id: str) -> str:
@@ -536,12 +545,13 @@ def build_markdown(
 def main() -> int:
     args = parse_args()
     db_path = resolve_db_path(args)
-    out_path = Path(args.out).expanduser().resolve()
+    out_dir = Path(args.out_dir).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
     kepub_dir = resolve_kepub_dir(args, db_path)
 
     conn = sqlite3.connect(f"file:{db_path}?immutable=1", uri=True)
     try:
-        rows = fetch_rows(conn, asc=args.asc, limit=args.limit, book=args.book)
+        rows = fetch_rows(conn)
         volume_ids = {clean_text(r[1]) for r in rows if clean_text(r[1])}
         chapter_map = load_chapter_map(conn, volume_ids)
         chapter_order_map = load_chapter_order_map(conn, volume_ids)
@@ -551,20 +561,30 @@ def main() -> int:
 
     epub_toc_map = load_epub_toc_map(volume_ids, kepub_dir)
 
-    markdown = build_markdown(
-        rows,
-        chapter_map,
-        chapter_order_map,
-        epub_toc_map,
-        content_index_map,
-        toc_title_by_index,
-    )
-    out_path.write_text(markdown, encoding="utf-8")
+    rows_by_book: Dict[str, List[tuple]] = {}
+    for row in rows:
+        book_title = clean_text(row[0]) or "(Unknown Title)"
+        rows_by_book.setdefault(book_title, [])
+        rows_by_book[book_title].append(row)
+
+    for book_title, book_rows in sorted(rows_by_book.items(), key=lambda x: x[0].casefold()):
+        markdown = build_markdown(
+            book_rows,
+            chapter_map,
+            chapter_order_map,
+            epub_toc_map,
+            content_index_map,
+            toc_title_by_index,
+        )
+        out_path = out_dir / f"{safe_filename(book_title)}.md"
+        out_path.write_text(markdown, encoding="utf-8")
 
     source = f"db={db_path}"
     if kepub_dir is not None:
         source += f", kepub={kepub_dir}"
-    print(f"Exported {len(rows)} items to {out_path} ({source})")
+    print(
+        f"Exported {len(rows)} items from {len(rows_by_book)} books to {out_dir} ({source})"
+    )
     return 0
 
 
