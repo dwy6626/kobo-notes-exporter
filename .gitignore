@@ -7,9 +7,7 @@ build/
 *.egg-info/
 
 # outputs
-*.md.bak
-notes*.md
-kobo_notes*.md
+kobo_notes
 
 # device/database files
 *.sqlite
