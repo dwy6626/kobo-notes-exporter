@@ -13,6 +13,7 @@
 
 - 支援指定裝置掛載根目錄：`--device-root`（建議主要使用）
 - 支援精準覆寫資料來源：`--db`、`--kepub-dir`
+- 支援輸出路徑已存在時的行為控制：`--out-exists`（`overwrite` / `rename` / `raise`）
 - 預設可自動偵測已掛載 Kobo（掃描 `/Volumes/*`）
 - 章節名稱採多層 fallback：
   1. `KoboReader.sqlite` 的 `content` (`ContentType=899`)
@@ -68,7 +69,8 @@ uv run kobo-notes-export \
   --device-root /Volumes/KOBOeReader \
   --db /path/to/KoboReader.sqlite \
   --kepub-dir /path/to/kepub \
-  --out-dir ./kobo_highlights
+  --out-dir ./kobo_highlights \
+  --out-exists rename
 ```
 
 ## 參數優先順序
@@ -80,9 +82,13 @@ uv run kobo-notes-export \
 
 ## 輸出檔案說明
 
-- 輸出資料夾由 `--out-dir` 決定（預設：`kobo_highlights`）
+- 輸出資料夾由 `--out-dir` 決定（預設：`kobo_notes`）
 - 每本書會產生一個 Markdown 檔
 - 檔名會自動清理不合法字元（例如 `/ \ : * ? " < > |`）
+- `--out-exists` 預設為 `raise`：
+  - `raise`：若輸出路徑已存在就直接報錯
+  - `overwrite`：保留既有資料夾並覆蓋同名檔案
+  - `rename`：先把既有輸出路徑改名（`<目錄名>.bak.<timestamp>`）再輸出
 
 ## 常見問題
 

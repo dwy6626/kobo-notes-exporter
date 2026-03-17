@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from datetime import datetime
 import re
 import sqlite3
 import zipfile
@@ -14,7 +15,7 @@ def clean_text(value: Optional[str]) -> str:
     return " ".join(value.strip().split())
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export Kobo highlights and notes from KoboReader.sqlite to Markdown"
     )
@@ -38,7 +39,51 @@ def parse_args() -> argparse.Namespace:
         default="kobo_notes",
         help="Output directory for per-book highlights/notes markdown files",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--out-exists",
+        choices=("overwrite", "rename", "raise"),
+        default="raise",
+        help=(
+            "Behavior when --out-dir already exists: "
+            "overwrite existing files, rename existing directory, or raise an error (default)"
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def backup_path_for_existing_output(path: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = path.with_name(f"{path.name}.bak.{stamp}")
+    if not base.exists():
+        return base
+
+    for idx in range(1, 1000):
+        candidate = path.with_name(f"{path.name}.bak.{stamp}.{idx}")
+        if not candidate.exists():
+            return candidate
+    raise SystemExit(f"Could not find available backup name for existing output path: {path}")
+
+
+def prepare_output_dir(out_dir: Path, behavior: str) -> Path:
+    if behavior not in {"overwrite", "rename", "raise"}:
+        raise SystemExit(f"Unsupported --out-exists value: {behavior}")
+
+    if out_dir.exists():
+        if behavior == "raise":
+            raise SystemExit(
+                f"Output path already exists: {out_dir}. "
+                "Use --out-exists overwrite or --out-exists rename."
+            )
+
+        if behavior == "rename":
+            backup_path = backup_path_for_existing_output(out_dir)
+            out_dir.rename(backup_path)
+            print(f"Renamed existing output path to {backup_path}")
+        elif not out_dir.is_dir():
+            out_dir.unlink()
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
 
 
 def candidate_db_paths_for_device_root(device_root: Path) -> List[Path]:
@@ -625,7 +670,7 @@ def main() -> int:
     args = parse_args()
     db_path = resolve_db_path(args)
     out_dir = Path(args.out_dir).expanduser().resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    prepare_output_dir(out_dir, args.out_exists)
     kepub_dir = resolve_kepub_dir(args, db_path)
 
     conn = sqlite3.connect(f"file:{db_path}?immutable=1", uri=True)
