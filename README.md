@@ -14,6 +14,7 @@
 - 支援指定裝置掛載根目錄：`--device-root`（建議主要使用）
 - 支援精準覆寫資料來源：`--db`、`--kepub-dir`
 - 支援輸出路徑已存在時的行為控制：`--out-exists`（`overwrite` / `rename` / `raise`）
+- 提供短參數：`-d` / `-r` / `-k` / `-o` / `-e`
 - 預設可自動偵測已掛載 Kobo（掃描 `/Volumes/*`）
 - 章節名稱採多層 fallback：
   1. `KoboReader.sqlite` 的 `content` (`ContentType=899`)
@@ -39,6 +40,8 @@ uv sync
 ## 使用方式
 
 建議主要使用 `--device-root`。需要精準控制時，再搭配 `--db` / `--kepub-dir` 覆寫。
+
+短參數對照：`-d` = `--db`、`-r` = `--device-root`、`-k` = `--kepub-dir`、`-o` = `--out-dir`、`-e` = `--out-exists`。
 
 ### 1) 自動偵測已掛載 Kobo（最簡單）
 
@@ -107,6 +110,26 @@ uv run kobo-notes-export \
 
 ```bash
 uv run python -m kobo_notes_exporter.cli --help
+```
+
+### 執行單元測試
+
+執行全部測試：
+
+```bash
+uv run python -m unittest discover -s tests
+```
+
+執行單一測試檔：
+
+```bash
+uv run python -m unittest tests.test_output_dir_behavior
+```
+
+執行單一測試方法：
+
+```bash
+uv run python -m unittest tests.test_output_dir_behavior.OutputDirBehaviorTests.test_parse_args_supports_short_options
 ```
 
 ## 專案結構

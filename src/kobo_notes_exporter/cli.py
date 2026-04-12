@@ -20,26 +20,31 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         description="Export Kobo highlights and notes from KoboReader.sqlite to Markdown"
     )
     parser.add_argument(
+        "-d",
         "--db",
         default="",
         help="Path to KoboReader.sqlite (optional override when --device-root is set)",
     )
     parser.add_argument(
+        "-r",
         "--device-root",
         default="",
         help="Kobo mount root path (recommended, e.g. /Volumes/KOBOeReader)",
     )
     parser.add_argument(
+        "-k",
         "--kepub-dir",
         default="",
         help="Path to kepub directory (optional override when --device-root is set)",
     )
     parser.add_argument(
+        "-o",
         "--out-dir",
         default="kobo_notes",
         help="Output directory for per-book highlights/notes markdown files",
     )
     parser.add_argument(
+        "-e",
         "--out-exists",
         choices=("overwrite", "rename", "raise"),
         default="raise",
