@@ -43,6 +43,22 @@ uv sync
 
 短參數對照：`-d` = `--db`、`-r` = `--device-root`、`-k` = `--kepub-dir`、`-o` = `--out-dir`、`-e` = `--out-exists`。
 
+### 匯出到 notes repo 並建立 PR
+
+執行 `scripts/export_to_notes_repo.sh` 的短指令：
+
+```bash
+uv run export-pr
+```
+
+需要指定 Kobo 裝置時，可直接傳入匯出參數：
+
+```bash
+uv run export-pr --device-root /Volumes/KOBOeReader
+```
+
+此流程會操作相鄰的 `kobo-notes` repository，並建立 branch、commit、push 與 GitHub pull request。執行前請確認 working tree 乾淨且 GitHub CLI 已登入。
+
 ### 1) 自動偵測已掛載 Kobo（最簡單）
 
 ```bash
