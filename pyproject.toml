@@ -14,6 +14,7 @@ dependencies = []
 
 [project.scripts]
 export = "kobo_notes_exporter.cli:main"
+export-pr = "kobo_notes_exporter.export_pr:main"
 
 [build-system]
 requires = ["setuptools>=65"]
