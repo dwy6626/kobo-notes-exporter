@@ -74,7 +74,6 @@ notes_git push --set-upstream "${REMOTE}" "${BRANCH}"
 (
     cd -- "${NOTES_REPO}"
     gh pr create \
-        --draft \
         --base "${BASE_BRANCH}" \
         --head "${BRANCH}" \
         --title "${PR_TITLE}" \
