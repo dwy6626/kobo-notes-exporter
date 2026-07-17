@@ -8,6 +8,7 @@ build/
 
 # outputs
 kobo_notes
+kobo_notes.bak.*/
 
 # device/database files
 *.sqlite

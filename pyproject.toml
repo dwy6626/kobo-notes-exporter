@@ -13,7 +13,7 @@ maintainers = [
 dependencies = []
 
 [project.scripts]
-kobo-notes-export = "kobo_notes_exporter.cli:main"
+export = "kobo_notes_exporter.cli:main"
 
 [build-system]
 requires = ["setuptools>=65"]
